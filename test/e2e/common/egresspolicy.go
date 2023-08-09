@@ -5,7 +5,10 @@ package common
 
 import (
 	"context"
+	"reflect"
 	"time"
+
+	. "github.com/onsi/ginkgo/v2"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -234,6 +237,52 @@ func WaitEgressClusterPolicyEipUpdated(f *framework.Framework, name, expectV4Eip
 			allocatorPolicy = policy.Spec.EgressIP.AllocatorPolicy
 			useNodeIP = policy.Spec.EgressIP.UseNodeIP
 			return
+		}
+	}
+}
+
+func CheckEgressPolicyStatus(f *framework.Framework, policyName, namespace string, expectStatus *v1beta1.EgressPolicyStatus, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+
+	egp := new(v1beta1.EgressPolicy)
+	for {
+		select {
+		case <-ctx.Done():
+			GinkgoWriter.Printf("failed update EgressPolicyStatus, the expectStatus is: %v\nbut actual is: %v\n", *expectStatus, egp.Status)
+			return err.TIME_OUT
+		default:
+			e := GetEgressPolicy(f, policyName, namespace, egp)
+			if e != nil {
+				return e
+			}
+			if reflect.DeepEqual(*expectStatus, egp.Status) {
+				return nil
+			}
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+func CheckEgressClusterPolicyStatus(f *framework.Framework, policyName string, expectStatus *v1beta1.EgressPolicyStatus, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+
+	egcp := new(v1beta1.EgressClusterPolicy)
+	for {
+		select {
+		case <-ctx.Done():
+			GinkgoWriter.Printf("failed update EgressPolicyStatus, the expectStatus is: %v\nbut actual is: %v\n", *expectStatus, egcp.Status)
+			return err.TIME_OUT
+		default:
+			e := GetEgressPolicy(f, policyName, "", egcp)
+			if e != nil {
+				return e
+			}
+			if reflect.DeepEqual(*expectStatus, egcp.Status) {
+				return nil
+			}
+			time.Sleep(time.Second)
 		}
 	}
 }

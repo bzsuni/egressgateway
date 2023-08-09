@@ -6,6 +6,7 @@ package common
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/spidernet-io/e2eframework/framework"
 	egressv1beta1 "github.com/spidernet-io/egressgateway/pkg/k8s/apis/v1beta1"
 	"github.com/spidernet-io/egressgateway/test/e2e/err"
+	"github.com/spidernet-io/egressgateway/test/e2e/tools"
 )
 
 func GenerateEgressGatewayYaml(name string, ipPools egressv1beta1.Ippools, nodeSelector egressv1beta1.NodeSelector) *egressv1beta1.EgressGateway {
@@ -143,6 +145,39 @@ func WaitEgressGatewayDefaultEIPUpdated(f *framework.Framework, name string, v4E
 	}
 }
 
+// WaitEgressGatewayStatusNodeListUpdate wait egressGateway status.NodeList update, only check nodesName
+func WaitEgressGatewayStatusNodeListUpdate(f *framework.Framework, egressName string, nodes []string, timeout time.Duration) (*egressv1beta1.EgressGateway, error) {
+	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+
+	eg := new(egressv1beta1.EgressGateway)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ERR_TIMEOUT
+		default:
+			e := GetEgressGateway(f, egressName, eg)
+			if e != nil {
+				return nil, e
+			}
+			if eg.Status.NodeList == nil || len(eg.Status.NodeList) != len(nodes) {
+				GinkgoWriter.Println("in not equal")
+
+				time.Sleep(time.Second * 3)
+				continue
+			}
+			egNodes := make([]string, 0)
+			for _, nodeList := range eg.Status.NodeList {
+				egNodes = append(egNodes, nodeList.Name)
+			}
+			if tools.IsSameSlice(egNodes, nodes) {
+				return eg, nil
+			}
+			time.Sleep(time.Second * 3)
+		}
+	}
+}
+
 // WaitEgressGatewayStatusUpdated after policy using the gateway created, wait the status about policy updated
 func WaitEgressGatewayStatusUpdated(f *framework.Framework, policy *egressv1beta1.EgressPolicy, timeout time.Duration) (nodeName string, v4Eip, v6Eip string, e error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
@@ -168,6 +203,30 @@ func WaitEgressGatewayStatusUpdated(f *framework.Framework, policy *egressv1beta
 						}
 					}
 				}
+			}
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+// CheckEgressGatewayStatus after some operations that affect the gateway, do a final verification of EgressGatewayStatus
+func CheckEgressGatewayStatus(f *framework.Framework, gatewayName string, expectStatus *egressv1beta1.EgressGatewayStatus, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+
+	gateway := new(egressv1beta1.EgressGateway)
+	for {
+		select {
+		case <-ctx.Done():
+			GinkgoWriter.Printf("failed update egressgateway.status, the expectStatus is: %v\nbut actual is: %v\n", *expectStatus, gateway.Status)
+			return err.TIME_OUT
+		default:
+			e := GetEgressGateway(f, gatewayName, gateway)
+			if e != nil {
+				return e
+			}
+			if reflect.DeepEqual(*expectStatus, gateway.Status) {
+				return nil
 			}
 			time.Sleep(time.Second)
 		}
